@@ -10,7 +10,9 @@ import time
 
 
 VERBOSE = False
-if not VERBOSE:  print = lambda *_, **__: None
+if not VERBOSE:
+    _print = print
+    print = lambda *_, **__: None
 
 
 if sys.platform == 'win32':
@@ -27,12 +29,12 @@ else:
 
 print("Write to  \"" + TONAME +"\"")
 if not os.path.exists(TONAME):
-    print(" ..does not exist.  Ensure Audacity is running with mod-script-pipe.")
+    _print(f"{TONAME} does not exist.  Ensure Audacity is running with mod-script-pipe.")
     sys.exit()
 
 print("Read from \"" + FROMNAME +"\"")
 if not os.path.exists(FROMNAME):
-    print(" ..does not exist.  Ensure Audacity is running with mod-script-pipe.")
+    _print(f"{FROMNAME} does not exist.  Ensure Audacity is running with mod-script-pipe.")
     sys.exit()
 
 print("-- Both pipes exist.  Good.")
