@@ -1,0 +1,8 @@
+*.swp
+.audacity*
+.gitconfig
+__pycache__/
+audacity
+bower_components
+dist
+node_modules

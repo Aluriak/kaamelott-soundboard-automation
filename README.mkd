@@ -1,0 +1,101 @@
+# Kaamelott Soundboard automation
+Une aide automatique pour remplir le [Kaamelott Soundboard](https://kaamelott-soundboard.2ec0b4.fr).
+
+Le principe est le suivant :
+
+- l'utilisateur utilise kdenlive, un logiciel de montage, pour isoler les citations.
+- il lance ensuite le script `extract.py`, qui se chargera d'extraire les citations depuis le fichier de projet kdenlive, et de créer les fichiers à ajouter au dépôt du Kaamelott soundboard.
+
+Pour l'automatisation, [audacity doit être rendu automatisable, et c'est pas une mince affaire](#Prliminaire-automatisation-daudacity).
+
+
+
+## Étape 1: délimitations des citations avec Kdenlive
+
+Kdenlive est [disponible ici](https://kdenlive.org), ou, mieux, sur les dépôts de distribution.
+
+Il permet :
+
+1. de charger un fichier (par exemple, un (fichier son d'un) épisode de Kaamelott)
+2. de placer ce fichier sur les tracks vidéos ou son (dans notre cas, ça importe peu).
+3. de couper ce fichier pour isoler des parties particulières.
+
+En répétant la dernière étape plusieurs fois, on peut arriver à avoir plusieurs
+citations sur plusieurs épisodes isolés les uns des autres.
+
+Il faut sauvegarder le *projet* dans un fichier `.kdenlive` qui sera utilisé à la prochaine étape.
+Dans ce fichier XML, on trouvera :
+
+- pour chaque fichier chargé, un UID et le chemin absolu pour y accéder
+- pour chaque cut isolé, l'UID du fichier, la frame de début et la frame de fin
+
+Dans l'étape suivante, on lira simplement ce fichier XML pour récupérer ces infos.
+
+
+### Note sur les effets de montage
+Le code se chargeant de l'extraction depuis le fichier de sauvegarde XML étant d'une simplicité abrutissante,
+il faut éviter de mettre des effets sur la citation.
+En revanche, si du traitement est nécessaire (pour enlever un bruit à la fin d'une citation par exemple),
+il est possible de faire ce traitement, de render le fichier, et de le réimporter dans kdenlive.
+
+
+## Étape 2: extraction automatique
+En lancant le script `extract.py <chemin vers le fichier .kdenlive>`, l'utilisateur déclenchera les comportements suivants :
+
+1. parsing du fichier `.kdenlive`
+2. récupération du mapping UID -> chemin absolu
+3. pour chaque UID:
+    1. récupération du mapping UID -> (1ère frame, dernière frame)
+    2. récupération du segment isolé avec ffmpeg
+    3. lancement de la séquence de nettoyage via audacity/mod-script-pipe
+    4. demande d'info à l'utilisateur
+4. création du fichier json à ajouter à `sounds.json` dans kaamelott-soundboard
+
+
+## Étape 3: vérifications et ajouts à la 
+En regardant dans le dossier `out/final/`, vous trouverez :
+
+- les fichiers mp3 finaux des citations
+- le fichier `out.json`
+
+Il faut vérifier chacun de ces fichiers, au cas où un problème serait arrivé quelque part.
+Normalement, les fichiers mp3 ont déjà été écouté pendant la demande d'info à l'utilisateur,
+mais le json étant écrit avec des données écrites par l'utilisateur, il est possible qu'un nom de personnage soit inexact, par exemple.
+
+
+
+## Préliminaire: installations
+Sont nécessaires :
+
+- python 3.5+
+- ffmpeg 4.1.2 (j'imagine qu'une version plus ancienne fera l'affaire, on fait rien de compliqué avec)
+- audacity 2.3.1 (nécessaire pour le scripting)
+- kdenlive 18.12.3 (j'imagine que la version importe peu, tant que le format de sauvegarde reste inchangé dans ses grandes lignes)
+
+ffmpeg doit être dans le path (il est appelé via subprocess par python).
+Audacity et kdenlive seront démarrés par l'utilisateur.
+
+
+## Préliminaire: automatisation d'audacity
+Audacity peut être scripté. C'est génial, mais c'est encore en Alpha et peu documenté.
+Cela nécessite de le compiler manuellement.
+
+[Ça commence ici](https://manual.audacityteam.org/man/scripting.html#Getting_Started).
+
+En gros, j'ai réussi en suivant ces étapes là :
+
+- téléchargement des [sources](https://github.com/audacity/audacity)
+- `./configure --with-mod-script-pipe`  ([source](https://forum.audacityteam.org/viewtopic.php?t=101964))
+- `make -j8` (pour utiliser 8 cœurs)
+- [Et là, il reste de la magie à faire](https://forum.audacityteam.org/viewtopic.php?p=356758&sid=7177799cbe9480b85a0d5953d09a2eba#p356758)
+
+Il semble que les macros sont impossible à lancer, contrairement à [ce que dit la doc](https://manual.audacityteam.org/man/scripting_reference.html).
+Mais c'est pas grave, on arrive à faire des trucs (regardez `audacity_scripting.py` pour voir ce qui a été tenté, et `extract.py` pour voir comment c'est utilisé pour l'automatisation).
+
+
+
+
+## Améliorations
+
+- windows support : rien n'indique que windows n'est pas supporté (tous les logiciels utilisés sont compatibles), mais pour le moment, les seuls tests réalisés ont été fait sur une manjaro.
+- autocorrection des noms de personnages : il devrait être possible de choisir dans une liste de personnages, plutôt qu'écrire (avec les risques d'erreur associés) les noms de personnages à chaque fois.
