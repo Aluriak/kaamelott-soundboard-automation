@@ -1,15 +1,24 @@
 """Automatisation of the Kaamelott file handling.
 
+usage:
+    python extract.py <kdenlive file>
+
+To improve character name recognition and filename inference,
+install unidecode python package.
+
 """
 
 import os
 import re
+import sys
 import json
-import audacity_scripting
+import itertools
 import subprocess
+import audacity_scripting
+import xml.etree.ElementTree as ET
 from pprint import pprint
 from shutil import copyfile
-import xml.etree.ElementTree as ET
+from functools import lru_cache
 
 
 REGEX_EPISODE = re.compile('S([0-9]+)E([0-9]+)')
@@ -87,22 +96,72 @@ def infer_episode_from_name(fname:str) -> (int, int):
 
 
 def canonical_citation_file(text:str) -> str:
-    return ''.join(c for c in text.lower().replace(' ', '_') if REGEX_BASENAME.fullmatch(c)).strip('_')
+    text = text.lower().replace(' ', '_').replace('-', '_')
+    try:
+        from unidecode import unidecode
+        text = unidecode(text)
+    except ImportError:
+        pass
+    fname = ''.join(c for c in text if REGEX_BASENAME.fullmatch(c)).strip('_')
+    data = data_from_sounds_json()
+    if data:
+        already_used = {cit['file'] for cit in data}
+        if fname in already_used:
+            print(f'WARNING filename "{fname}" is already used in existing data. A suffix will be added.')
+            fname += '_2'
+    return fname
+
 
 
 def make_json_data(text:str, character:str, livre:int, episode:int, fname:str) -> dict:
     data = {
-        'character': character.title(),
-        'episode': f'Livre {ROMAN[livre]}, {episode:02} - ????',
+        'character': character_name(character),
+        'episode': f'Livre {ROMAN[livre]}, {episode:02} - {episode_name(livre, episode)}',
         'file': os.path.split(fname)[1],  # sounds.json and .mp3 are in the same directory
         'title': text
     }
-    return ''.join(' '*4 + line for line in json.dumps(data, indent=' '*4,).splitlines(True)) + ',\n'
+    return ''.join(' '*4 + line for line in json.dumps(data, indent=' '*4, ensure_ascii=False).splitlines(True)) + ',\n'
 
 
+def data_from_sounds_json() -> list or None:
+    "Return list of dict found in sound.json, or None if no file available"
+    if os.path.exists('data/sounds.json'):
+        with open('data/sounds.json') as fd:
+            return json.load(fd)
 
 
-root = ET.parse('projet-extraction.kdenlive').getroot()
+@lru_cache()
+def episode_name(livre:int, episode:int) -> str:
+    question = f"Titre de l'épisode S{livre}E{episode} ? "
+    return input(question).title() or '???'
+
+@lru_cache()
+def character_name(character:str) -> str:
+    def normalized_name(name:str) -> str:
+        try:
+            from unidecode import unidecode
+        except ImportError:
+            return name.lower()
+        return unidecode(name.lower())
+    data = data_from_sounds_json()
+    if data:
+        characters = {
+            normalized_name(char): char
+            for char in set(itertools.chain.from_iterable(cit['character'] for cit in data))
+        }
+        realname = characters.get(normalized_name(character))
+        if realname is None:
+            print(f'Character "{character}" unknown. Will be used as-is.')
+        else:
+            character = realname
+    return character
+
+
+if len(sys.argv) != 2:
+    print(__doc__)
+    exit(1)
+
+root = ET.parse(sys.argv[1]).getroot()
 
 assert len(tuple(find_clips(root))) == len(dict(find_clips(root))), "there is clips with same id in the file"
 clips = dict(find_clips(root))
