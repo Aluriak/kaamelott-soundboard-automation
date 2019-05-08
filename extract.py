@@ -135,20 +135,25 @@ def episode_name(livre:int, episode:int) -> str:
     question = f"Titre de l'épisode S{livre}E{episode} ? "
     return input(question).title() or '???'
 
+
+def normalized_name(name:str) -> str:
+    try:
+        from unidecode import unidecode
+    except ImportError:
+        return name.lower()
+    return unidecode(name.lower())
+
 @lru_cache()
 def character_name(character:str) -> str:
-    def normalized_name(name:str) -> str:
-        try:
-            from unidecode import unidecode
-        except ImportError:
-            return name.lower()
-        return unidecode(name.lower())
     data = data_from_sounds_json()
     if data:
+        # print('OK data available:', len(data))
         characters = {
             normalized_name(char): char
-            for char in set(itertools.chain.from_iterable(cit['character'] for cit in data))
+            for char in set(itertools.chain.from_iterable(cit['character'].split(' - ') for cit in data))
         }
+        # print('\t', character, '->', normalized_name(character))
+        # print('\t', characters)
         realname = characters.get(normalized_name(character))
         if realname is None:
             print(f'Character "{character}" unknown. Will be used as-is.')
