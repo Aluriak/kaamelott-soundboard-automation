@@ -9,6 +9,12 @@ Le principe est le suivant :
 Pour l'automatisation, [audacity doit être rendu automatisable, et c'est pas une mince affaire](#Prliminaire-automatisation-daudacity).
 
 
+Niveau makefile :
+
+    make extract-from-kdenlive  # pour lancer l'extraction complète
+    cd out/final && make update  # pour ajouter les citations dans le dossier parent du projet
+
+
 
 ## Étape 1: délimitations des citations avec Kdenlive
 

@@ -1,5 +1,5 @@
 clean:
-	- rm *.mp3
+	- rm *.mp3 out.json
 
 update:
 	cp *.mp3 ../../../sounds/

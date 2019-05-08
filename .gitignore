@@ -6,3 +6,4 @@ audacity
 bower_components
 dist
 node_modules
+venv/
