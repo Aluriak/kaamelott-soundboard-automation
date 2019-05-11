@@ -123,7 +123,7 @@ def canonical_citation_file(text:str) -> str:
         if (fname + '.mp3') in already_used:
             print(f'WARNING filename "{fname}" is already used in existing data. A suffix will be added.')
             fname += '_2'
-    return fname
+    return fname.strip(' _-')
 
 
 
