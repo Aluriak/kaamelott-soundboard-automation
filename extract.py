@@ -1,10 +1,13 @@
 """Automatisation of the Kaamelott file handling.
 
 usage:
-    python extract.py <kdenlive file>
+    python extract.py <kdenlive file> [<sounds.json file ; default=data/sounds.json>]
 
 To improve character name recognition and filename inference,
 install unidecode python package.
+
+To improve episode and character name recognition,
+provides a properly formatted sounds.json.
 
 """
 
@@ -23,8 +26,10 @@ from functools import lru_cache
 
 REGEX_EPISODE = re.compile('S([0-9]+)E([0-9]+)')
 REGEX_BASENAME = re.compile('[a-zA-Z0-9-_]')
+REGEX_EPISODE_DATA = re.compile(r'Livre ([IV]+), ([0-9]+) - (.*)')
 ROMAN = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 'VII': 7}
 ROMAN_NUMBER = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7}
+SOUNDS_JSON_FILE = 'data/sounds.json'
 
 
 def get_framerate(fname:str) -> int:
@@ -84,15 +89,16 @@ def play_file(fname:str):
     stdout, stderr = proc.communicate()
 
 
-def infer_episode_from_name(fname:str) -> (int, int):
-    "Return (livre, episode), guessed from filename name"
+def infer_episode_from_name(fname:str, sounds_json_file:str=None) -> (int, int, str):
+    "Return (livre, episode, title), guessed from filename name and sounds.json file if given"
     fname = os.path.split(fname)[1]
     match = REGEX_EPISODE.search(fname)
     if match:
         livre, episode = map(int, match.groups(0))
     else:
         livre, episode = 0, 0
-    return livre, episode
+    title = get_episode_name(livre, episode, sounds_json_file) if sounds_json_file else '????'
+    return livre, episode, title
 
 
 def canonical_citation_file(text:str) -> str:
@@ -103,37 +109,39 @@ def canonical_citation_file(text:str) -> str:
     except ImportError:
         pass
     fname = ''.join(c for c in text if REGEX_BASENAME.fullmatch(c)).strip('_')
+    # avoid too long names
+    if len(fname) > 50:
+        print(f'The filename is quite long: {fname} (the .mp3 will be added later)')
+        print(f'Propose an alternative name for it:')
+        shorter = input('Alternative name [leave empty to keep it long]: ')
+        if shorter:
+            return canonical_citation_file(shorter)
+    # avoid doublons
     data = data_from_sounds_json()
     if data:
         already_used = {cit['file'] for cit in data}
-        if fname in already_used:
+        if (fname + '.mp3') in already_used:
             print(f'WARNING filename "{fname}" is already used in existing data. A suffix will be added.')
             fname += '_2'
     return fname
 
 
 
-def make_json_data(text:str, character:str, livre:int, episode:int, fname:str) -> dict:
+def make_json_data(text:str, character:str, livre:int, episode:int, episode_name:str, fname:str) -> dict:
     data = {
-        'character': character_name(character),
-        'episode': f'Livre {ROMAN[livre]}, {episode:02} - {episode_name(livre, episode)}',
+        'character': character,
+        'episode': f'Livre {ROMAN[livre]}, {episode:02} - {episode_name}',
         'file': os.path.split(fname)[1],  # sounds.json and .mp3 are in the same directory
         'title': text
     }
     return ''.join(' '*4 + line for line in json.dumps(data, indent=' '*4, ensure_ascii=False).splitlines(True)) + ',\n'
 
 
-def data_from_sounds_json() -> list or None:
+def data_from_sounds_json(fname:str=SOUNDS_JSON_FILE) -> list or None:
     "Return list of dict found in sound.json, or None if no file available"
-    if os.path.exists('data/sounds.json'):
-        with open('data/sounds.json') as fd:
+    if os.path.exists(fname):
+        with open(fname) as fd:
             return json.load(fd)
-
-
-@lru_cache()
-def episode_name(livre:int, episode:int) -> str:
-    question = f"Titre de l'épisode S{livre}E{episode} ? "
-    return input(question).title() or '???'
 
 
 def normalized_name(name:str) -> str:
@@ -143,9 +151,24 @@ def normalized_name(name:str) -> str:
         return name.lower()
     return unidecode(name.lower())
 
+
 @lru_cache()
-def character_name(character:str) -> str:
-    data = data_from_sounds_json()
+def get_episode_name(livre:int, episode:int, sounds_json_file:str) -> str:
+    print(f'SEARCHING FOR S{livre}E{episode}…')
+    for citation in data_from_sounds_json(sounds_json_file):
+        match = REGEX_EPISODE_DATA.fullmatch(citation['episode'])
+        assert match, citation['episode']
+        cit_livre, cit_episode, cit_title = match.groups(0)
+        if ROMAN_NUMBER[cit_livre] == livre and episode == int(cit_episode):
+            return cit_title
+    # not found: ask user
+    question = f"Titre de l'épisode S{livre}E{episode} ? "
+    return input(question).title() or '???'
+
+
+@lru_cache()
+def normalize_character_name(character:str, sounds_json_file:str) -> str:
+    data = data_from_sounds_json(sounds_json_file)
     if data:
         # print('OK data available:', len(data))
         characters = {
@@ -162,11 +185,12 @@ def character_name(character:str) -> str:
     return character
 
 
-if len(sys.argv) != 2:
+if len(sys.argv) not in {2, 3}:
     print(__doc__)
     exit(1)
 
 root = ET.parse(sys.argv[1]).getroot()
+sounds_json_file = sys.argv[2] if len(sys.argv) == 3 else SOUNDS_JSON_FILE
 
 assert len(tuple(find_clips(root))) == len(dict(find_clips(root))), "there is clips with same id in the file"
 clips = dict(find_clips(root))
@@ -181,7 +205,7 @@ pprint(cuts)
 
 for idx, (clipid, frin, frout) in enumerate(cuts, start=1):
     clip = clips[clipid]
-    livre, episode = infer_episode_from_name(clip)
+    livre, episode, episode_name = infer_episode_from_name(clip, sounds_json_file)
     fname = f'out/extract-{idx}.mp3'
     print(f"Treating cut {idx}, for clip {clipid} (S{livre}E{episode:02})… ")
     print('\textracting…')
@@ -192,13 +216,14 @@ for idx, (clipid, frin, frout) in enumerate(cuts, start=1):
     print('\tplaying final file…')
     play_file(fname)
     print('\tprompting info…')
-    character = input('Character: ').strip()
+    character = normalize_character_name(input('Character: ').strip(), sounds_json_file)
     text = input('Text: ').strip()
     livre = input(f'Livre[{livre}]: ').strip() or livre
     episode = input(f'Épisode[{episode}]: ').strip() or episode
+    episode_name = input(f"Titre de l'épisode[{episode_name}]: ").strip() or episode_name
     final_fname = f'out/final/{canonical_citation_file(text)}.mp3'
     print('\tsaving everything…')
     copyfile(fname, final_fname)
     with open('out/final/out.json', 'a') as fd:
-        fd.write(make_json_data(text, character, livre, episode, final_fname))
+        fd.write(make_json_data(text, character, livre, episode, episode_name, final_fname))
     print('\tDone !')
